@@ -65,7 +65,7 @@ attachments.get("/:id", async (c) => {
   if (NEEDS_CONVERSION.has(mimeType)) {
     try {
       const converted = convertToJpeg(resolved);
-      return new Response(converted, {
+      return new Response(converted as unknown as BodyInit, {
         headers: {
           "Content-Type": "image/jpeg",
           "Content-Length": converted.length.toString(),

@@ -1,17 +1,22 @@
 import { Hono } from "hono";
-import { getMessages, getNewMessagesSince, getMaxMessageRowid } from "../lib/queries.js";
+import { getMessages, getMessagesByChatGuid, getNewMessagesSince, getMaxMessageRowid } from "../lib/queries.js";
 
 const messages = new Hono();
 
 // GET /chats/:id/messages?before=<rowid>&limit=50
 messages.get("/chats/:id/messages", (c) => {
-  const chatId = parseInt(c.req.param("id"), 10);
-  if (isNaN(chatId)) return c.json({ error: "Invalid chat ID" }, 400);
-
+  const idParam = c.req.param("id");
   const before = c.req.query("before") ? parseInt(c.req.query("before")!, 10) : undefined;
   const limit = Math.min(parseInt(c.req.query("limit") || "50", 10), 500);
 
-  const data = getMessages(chatId, before, limit);
+  const numericId = parseInt(idParam, 10);
+  let data;
+  if (!isNaN(numericId) && String(numericId) === idParam) {
+    data = getMessages(numericId, before, limit);
+  } else {
+    data = getMessagesByChatGuid(decodeURIComponent(idParam), before, limit);
+  }
+
   return c.json(data);
 });
 

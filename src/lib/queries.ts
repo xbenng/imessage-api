@@ -58,6 +58,45 @@ export function getChatById(chatId: number): Chat | null {
   return enrichChat(row);
 }
 
+export function getChatByGuid(guid: string): Chat | null {
+  const db = getChatDb();
+  const row = db
+    .prepare(
+      `
+    SELECT
+      c.ROWID as id,
+      c.guid,
+      c.chat_identifier,
+      c.style,
+      c.display_name,
+      c.service_name,
+      MAX(cmj.message_date) as last_message_date,
+      COUNT(cmj.message_id) as message_count
+    FROM chat c
+    JOIN chat_message_join cmj ON cmj.chat_id = c.ROWID
+    WHERE c.guid = ?
+    GROUP BY c.ROWID
+  `
+    )
+    .get(guid) as any | undefined;
+
+  if (!row) return null;
+  return enrichChat(row);
+}
+
+export function getMessagesByChatGuid(
+  guid: string,
+  beforeRowid?: number,
+  limit: number = 50
+): Message[] {
+  const db = getChatDb();
+  const chatRow = db
+    .prepare("SELECT ROWID FROM chat WHERE guid = ?")
+    .get(guid) as any | undefined;
+  if (!chatRow) return [];
+  return getMessages(chatRow.ROWID, beforeRowid, limit);
+}
+
 function enrichChat(row: any): Chat {
   const participants = getChatParticipants(row.id);
   const lastMessage = getLastMessagePreview(row.id);

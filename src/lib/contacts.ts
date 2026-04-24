@@ -127,9 +127,9 @@ export function loadContacts(): ContactMap {
       if (cached._timestamp && Date.now() - cached._timestamp < CACHE_TTL_MS) {
         const ts = cached._timestamp;
         delete cached._timestamp;
-        contactMap = cached;
+        contactMap = cached as ContactMap;
         cacheTimestamp = ts;
-        return contactMap;
+        return contactMap!;
       }
     } catch {
       // Cache corrupted, rebuild
