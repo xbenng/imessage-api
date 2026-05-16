@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { getChats, getChatById } from "../lib/queries.js";
+import { getChats, getChatById, getChatByGuid } from "../lib/queries.js";
 
 const chats = new Hono();
 
@@ -10,10 +10,16 @@ chats.get("/", (c) => {
 });
 
 chats.get("/:id", (c) => {
-  const id = parseInt(c.req.param("id"), 10);
-  if (isNaN(id)) return c.json({ error: "Invalid chat ID" }, 400);
+  const idParam = c.req.param("id");
+  const numericId = parseInt(idParam, 10);
 
-  const chat = getChatById(id);
+  let chat;
+  if (!isNaN(numericId) && String(numericId) === idParam) {
+    chat = getChatById(numericId);
+  } else {
+    chat = getChatByGuid(decodeURIComponent(idParam));
+  }
+
   if (!chat) return c.json({ error: "Chat not found" }, 404);
   return c.json(chat);
 });

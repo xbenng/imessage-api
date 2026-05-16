@@ -2,6 +2,8 @@
 
 REST API server for reading and sending iMessages. Reads the macOS Messages database (`chat.db`) directly and serves data over HTTP with JWT authentication.
 
+Pairs with [`apple-messages-mcp`](https://github.com/xbenng/apple-messages-mcp) (branch `api-backend`), which can use this service as its backend so an MCP client running off-host can read/send messages without needing local Full Disk Access.
+
 ## Requirements
 
 - macOS with Messages app
