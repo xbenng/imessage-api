@@ -10,6 +10,39 @@ const attachments = new Hono();
 
 const MESSAGES_DIR = path.join(os.homedir(), "Library", "Messages");
 
+/**
+ * Resolve a path for comparison. On macOS /var, /tmp and /etc are symlinks into
+ * /private, and chat.db stores the unresolved form (/var/folders/...), so a raw
+ * string prefix check against "/private/var/folders/" never matches. Resolve
+ * symlinks when the file exists; fall back to rewriting the well-known firmlink
+ * prefixes when it does not (macOS purges the imagent temp dirs aggressively).
+ */
+function canonicalPath(p: string): string {
+  const resolved = path.resolve(p);
+  try {
+    return fs.realpathSync.native(resolved);
+  } catch {
+    for (const link of ["/var", "/tmp", "/etc"]) {
+      if (resolved === link || resolved.startsWith(link + path.sep)) {
+        return "/private" + resolved;
+      }
+    }
+    return resolved;
+  }
+}
+
+/** Boundary-aware containment check ("/a/bc" is not inside "/a/b"). */
+function isInside(child: string, parent: string): boolean {
+  const rel = path.relative(parent, child);
+  return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+}
+
+// Roots an attachment is allowed to be served from. Messages stores most files
+// under ~/Library/Messages/Attachments, but files still in transit (and many
+// screenshots) live in imagent's per-user temp dir under /var/folders.
+const ALLOWED_ROOTS = [MESSAGES_DIR, "/var/folders"].map(canonicalPath);
+const TEMP_ROOT = canonicalPath("/var/folders");
+
 // MIME types that browsers can't display natively — convert to JPEG via macOS sips
 const NEEDS_CONVERSION = new Set([
   "image/heic",
@@ -41,21 +74,32 @@ attachments.get("/:id", async (c) => {
 
   // Expand ~ to home directory
   const filePath = attachment.filename.replace(/^~/, os.homedir());
-  const resolved = path.resolve(filePath);
+  const resolved = canonicalPath(filePath);
 
-  // Security: prevent path traversal — allow Messages dir and temp dirs (where some attachments live)
-  const allowedPrefixes = [
-    MESSAGES_DIR,
-    "/private/var/folders/",
-    path.join(os.homedir(), "Library", "Messages"),
-  ];
-  const allowed = allowedPrefixes.some((prefix) => resolved.startsWith(prefix));
-  if (!allowed) {
-    return c.json({ error: "Forbidden" }, 403);
+  // Security: prevent path traversal — only serve files under the allowed roots
+  if (!ALLOWED_ROOTS.some((root) => isInside(resolved, root))) {
+    return c.json(
+      {
+        error: "Forbidden",
+        message:
+          "Attachment is stored outside the directories this server is allowed to read " +
+          "(~/Library/Messages and the Messages temporary directory).",
+      },
+      403
+    );
   }
 
   if (!fs.existsSync(resolved)) {
-    return c.json({ error: "File not found on disk" }, 404);
+    return c.json(
+      {
+        error: "File not found on disk",
+        message: isInside(resolved, TEMP_ROOT)
+          ? "The attachment was never copied into the Messages library — it only existed in " +
+            "macOS temporary storage, which has since been purged, so the file is unrecoverable."
+          : "The attachment is listed in chat.db but the file is missing from disk.",
+      },
+      404
+    );
   }
 
   const stat = fs.statSync(resolved);
