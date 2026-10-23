@@ -6,8 +6,32 @@ import os from "os";
 
 const send = new Hono();
 
-const UPLOAD_DIR = path.join(os.tmpdir(), "imessage-api-uploads");
+// Uploads are staged where Messages can read them. Files under the server's
+// own temp dir (os.tmpdir() -> /var/folders/.../T) fail to send: Messages
+// records the attachment with error 25 and only the caption goes out.
+// Messages also reads the file after `send` returns, so staged files are
+// removed later rather than immediately.
+const UPLOAD_DIR = path.join(os.homedir(), "Pictures", "imessage-api-outbox");
+const UPLOAD_TTL_MS = 10 * 60 * 1000;
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+function removeLater(dir: string) {
+  setTimeout(() => fs.rmSync(dir, { recursive: true, force: true }), UPLOAD_TTL_MS).unref();
+}
+
+// Sweep anything left behind by a previous run.
+for (const entry of fs.readdirSync(UPLOAD_DIR)) {
+  const p = path.join(UPLOAD_DIR, entry);
+  try {
+    if (Date.now() - fs.statSync(p).mtimeMs > UPLOAD_TTL_MS) fs.rmSync(p, { recursive: true, force: true });
+  } catch {}
+}
+
+/** Keep the sender's filename (the recipient sees it), minus anything path-like. */
+function safeFileName(name: string): string {
+  const base = path.basename(name || "").replace(/[\x00-\x1f/\\:]/g, "_").trim();
+  return base && base !== "." && base !== ".." ? base : "attachment";
+}
 
 function escapeAppleScript(s: string): string {
   return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
@@ -79,9 +103,9 @@ send.post("/", async (c) => {
 
     const file = form["attachment"];
     if (file && file instanceof File) {
-      const ext = path.extname(file.name) || "";
-      const tmpName = `upload-${Date.now()}${ext}`;
-      attachmentPath = path.join(UPLOAD_DIR, tmpName);
+      // One directory per upload so the original filename can be kept.
+      const dir = fs.mkdtempSync(path.join(UPLOAD_DIR, "upload-"));
+      attachmentPath = path.join(dir, safeFileName(file.name));
       const buffer = Buffer.from(await file.arrayBuffer());
       fs.writeFileSync(attachmentPath, buffer);
     }
@@ -110,9 +134,7 @@ send.post("/", async (c) => {
     console.error("Failed to send message:", err.stderr?.toString() || err.message);
     return c.json({ error: "Failed to send message", detail: err.stderr?.toString() || err.message }, 500);
   } finally {
-    if (attachmentPath) {
-      try { fs.unlinkSync(attachmentPath); } catch {}
-    }
+    if (attachmentPath) removeLater(path.dirname(attachmentPath));
   }
 });
 
