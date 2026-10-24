@@ -367,12 +367,12 @@ export function getAttachmentsForMessage(messageRowid: number): Attachment[] {
 
 export function getAttachmentById(
   attachmentId: number
-): { id: number; filename: string; mimeType: string; totalBytes: number } | null {
+): { id: number; filename: string; transferName: string | null; mimeType: string; totalBytes: number } | null {
   const db = getChatDb();
   const row = db
     .prepare(
       `
-    SELECT ROWID as id, filename, mime_type, total_bytes, transfer_state
+    SELECT ROWID as id, filename, transfer_name, mime_type, total_bytes, transfer_state
     FROM attachment WHERE ROWID = ?
   `
     )
@@ -382,6 +382,7 @@ export function getAttachmentById(
   return {
     id: row.id,
     filename: row.filename,
+    transferName: row.transfer_name || null,
     mimeType: row.mime_type,
     totalBytes: row.total_bytes || 0,
   };

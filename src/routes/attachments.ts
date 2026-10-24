@@ -63,6 +63,19 @@ function convertToJpeg(sourcePath: string): Buffer {
   }
 }
 
+// Content-Disposition carrying the original file name (RFC 6266 / 5987), so
+// clients can save the file under it. jpeg=true when HEIC etc. was converted.
+function contentDisposition(name: string, jpeg = false): string {
+  let base = path.basename(name || "attachment");
+  if (jpeg) base = base.replace(/\.[^.]*$/, "") + ".jpg";
+  const ascii = base.replace(/[^\x20-\x7e]|["\\]/g, "_");
+  const encoded = encodeURIComponent(base).replace(
+    /['()*]/g,
+    (ch) => "%" + ch.charCodeAt(0).toString(16).toUpperCase()
+  );
+  return `inline; filename="${ascii}"; filename*=UTF-8''${encoded}`;
+}
+
 attachments.get("/:id", async (c) => {
   const id = parseInt(c.req.param("id"), 10);
   if (isNaN(id)) return c.json({ error: "Invalid attachment ID" }, 400);
@@ -104,6 +117,7 @@ attachments.get("/:id", async (c) => {
 
   const stat = fs.statSync(resolved);
   const mimeType = attachment.mimeType || "application/octet-stream";
+  const displayName = attachment.transferName || path.basename(resolved);
 
   // Convert browser-incompatible image formats to JPEG using macOS sips
   if (NEEDS_CONVERSION.has(mimeType)) {
@@ -113,6 +127,7 @@ attachments.get("/:id", async (c) => {
         headers: {
           "Content-Type": "image/jpeg",
           "Content-Length": converted.length.toString(),
+          "Content-Disposition": contentDisposition(displayName, true),
           "Cache-Control": "private, max-age=86400",
         },
       });
@@ -128,6 +143,7 @@ attachments.get("/:id", async (c) => {
       headers: {
         "Content-Type": mimeType,
         "Content-Length": stat.size.toString(),
+        "Content-Disposition": contentDisposition(displayName),
         "Cache-Control": "private, max-age=86400",
       },
     });
@@ -138,6 +154,7 @@ attachments.get("/:id", async (c) => {
   return stream(c, async (s) => {
     c.header("Content-Type", mimeType);
     c.header("Content-Length", stat.size.toString());
+    c.header("Content-Disposition", contentDisposition(displayName));
     c.header("Cache-Control", "private, max-age=86400");
 
     for await (const chunk of nodeStream) {
